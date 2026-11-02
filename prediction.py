@@ -1,7 +1,7 @@
 """
 prediction.py
 -------------
-Loads the trained model bundle, performs inference, integrates the `pr_calibration.py` module,
+Loads the trained model bundle, performs inference, integrates the pr_calibration module,
 and generates position-specific feature importance explanations.
 """
 
@@ -18,20 +18,10 @@ def load_trained_model(model_path="models/trained_model.joblib"):
     return joblib.load(model_path)
 
 def predict_market_value(player_inputs, model_path="models/trained_model.joblib"):
-    """
-    Takes player inputs, computes engineered features, applies position-aware ML models,
-    and passes the prediction through the PR and Club calibration module.
-    
-    Returns:
-    - float: Final calibrated market value in Euros (€).
-    """
     breakdown = predict_market_value_detailed(player_inputs, model_path)
     return breakdown["calibrated_market_value_eur"]
 
 def predict_market_value_detailed(player_inputs, model_path="models/trained_model.joblib"):
-    """
-    Performs full two-stage valuation and returns a transparent breakdown dictionary.
-    """
     bundle = load_trained_model(model_path)
     global_model = bundle.get("global_model", bundle.get("model"))
     position_models = bundle.get("position_models", {})
@@ -39,7 +29,6 @@ def predict_market_value_detailed(player_inputs, model_path="models/trained_mode
 
     df = pd.DataFrame([player_inputs])
 
-    # Feature engineering pipeline replication
     df["age_squared"] = df["age"] ** 2
     df["is_prime_age"] = 1 if 23 <= df["age"].values[0] <= 28 else 0
     df["is_veteran"] = 1 if df["age"].values[0] >= 30 else 0
@@ -82,12 +71,10 @@ def predict_market_value_detailed(player_inputs, model_path="models/trained_mode
 
     X_pred = df[feature_cols]
 
-    # Stage 1: Machine Learning prediction
     model_to_use = position_models.get(pos_cat, global_model)
     log_pred = model_to_use.predict(X_pred)[0]
     raw_ml_eur = np.expm1(log_pred)
 
-    # Derive normalized performance score from stats
     matches_p = max(float(df["matches"].values[0]), 1.0)
     goals_p = float(df["goals"].values[0])
     assists_p = float(df["assists"].values[0])
@@ -97,7 +84,6 @@ def predict_market_value_detailed(player_inputs, model_path="models/trained_mode
     stat_sum = (goals_p * 2.5) + (assists_p * 2.0) + (tackles_p * 0.5) + (saves_p * 0.3)
     performance_score = float(np.clip(stat_sum / (matches_p * 1.5 + 10.0), 0.0, 1.0))
 
-    # Stage 2: Reputation and Club Calibration
     calibration_result = calibrate_valuation(
         ml_prediction_eur=raw_ml_eur,
         pr_score=pr_score,
