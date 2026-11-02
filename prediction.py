@@ -22,9 +22,19 @@ def predict_market_value(player_inputs, model_path="models/trained_model.joblib"
     and returns predicted market value in Euros (€).
     """
     bundle = load_trained_model(model_path)
-    global_model = bundle["global_model"]
-    position_models = bundle.get("position_models", {})
-    feature_cols = bundle["features"]
+    
+    # Handle backward compatibility if an older model joblib is loaded
+    if isinstance(bundle, dict):
+        global_model = bundle.get("global_model", bundle.get("model"))
+        position_models = bundle.get("position_models", {})
+        feature_cols = bundle["features"]
+    else:
+        # Fallback if raw model was saved directly
+        global_model = bundle
+        position_models = {}
+        from train_model import train_and_evaluate_models
+        _, feature_cols = train_and_evaluate_models(model_output_path=model_path)
+        bundle = load_trained_model(model_path)
 
     df = pd.DataFrame([player_inputs])
 
@@ -78,31 +88,31 @@ def predict_market_value(player_inputs, model_path="models/trained_model.joblib"
     return predicted_eur
 
 def get_position_specific_importances(position_category, subposition, model_path="models/trained_model.joblib"):
-    """
-    Returns position-specific prioritized feature importances tailored to the role rules.
-    """
     bundle = load_trained_model(model_path)
-    features = bundle["features"]
-    
-    # Define role-specific custom importance weights for academic clarity and alignment
+    if isinstance(bundle, dict) and "features" in bundle:
+        features = bundle["features"]
+    else:
+        from train_model import train_and_evaluate_models
+        _, features = train_and_evaluate_models(model_output_path=model_path)
+        
     if position_category == "Attackers":
         if subposition in ["LW", "RW"]:
             weights = {"crosses": 0.22, "successful_crosses": 0.20, "assists": 0.18, "goals": 0.15, "matches": 0.10, "player_reputation": 0.08, "age": 0.07}
-        else: # ST, CF
+        else:
             weights = {"goals": 0.30, "assists": 0.18, "matches": 0.14, "shots_on_target": 0.12, "xg": 0.10, "player_reputation": 0.08, "age": 0.08}
     elif position_category == "Midfielders":
         if subposition == "CDM":
             weights = {"tackles": 0.25, "interceptions": 0.22, "recoveries": 0.18, "matches": 0.12, "progressive_passes": 0.10, "player_reputation": 0.08, "age": 0.05}
         elif subposition in ["LM", "RM"]:
             weights = {"crosses": 0.22, "successful_crosses": 0.18, "assists": 0.18, "goals": 0.12, "matches": 0.10, "key_passes": 0.10, "player_reputation": 0.10}
-        else: # CAM, CM
+        else:
             weights = {"assists": 0.25, "goals": 0.18, "matches": 0.14, "big_chances_created": 0.12, "progressive_passes": 0.10, "player_reputation": 0.11, "age": 0.10}
     elif position_category == "Defenders":
         if subposition in ["LB", "RB", "LWB", "RWB"]:
             weights = {"progressive_passes": 0.22, "passes_into_final_third": 0.18, "tackles": 0.15, "clearances": 0.12, "matches": 0.12, "assists": 0.11, "player_reputation": 0.10}
-        else: # CB
+        else:
             weights = {"clearances": 0.25, "tackles": 0.20, "matches": 0.15, "clean_sheets": 0.15, "interceptions": 0.10, "aerial_duels_won": 0.10, "player_reputation": 0.05}
-    else: # Goalkeepers
+    else:
         weights = {"saves": 0.30, "clean_sheets": 0.25, "save_percentage": 0.20, "matches": 0.12, "player_reputation": 0.08, "age": 0.05}
 
     return pd.DataFrame(list(weights.items()), columns=["Feature", "Importance"]).sort_values(by="Importance", ascending=False)
