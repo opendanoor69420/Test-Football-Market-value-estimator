@@ -2,7 +2,7 @@
 data_preprocessing.py
 ---------------------
 Handles data cleaning, missing value imputation, duplicate removal, 
-type conversions, and data validation for the 660-player dataset.
+type conversions, and robust data validation.
 """
 
 import pandas as pd
