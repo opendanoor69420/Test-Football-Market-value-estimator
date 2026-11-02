@@ -1,14 +1,15 @@
 """
 prediction.py
 -------------
-Loads the trained model bundle, performs inference, and generates both 
-global and local position-specific feature importance explanations using SHAP or tree importances.
+Loads the trained model bundle, performs inference, integrates the `pr_calibration.py` module,
+and generates position-specific feature importance explanations.
 """
 
 import os
 import joblib
 import numpy as np
 import pandas as pd
+from pr_calibration import calibrate_valuation
 
 def load_trained_model(model_path="models/trained_model.joblib"):
     if not os.path.exists(model_path):
@@ -18,23 +19,23 @@ def load_trained_model(model_path="models/trained_model.joblib"):
 
 def predict_market_value(player_inputs, model_path="models/trained_model.joblib"):
     """
-    Takes player inputs, computes engineered features, applies position-aware models,
-    and returns predicted market value in Euros (€).
+    Takes player inputs, computes engineered features, applies position-aware ML models,
+    and passes the prediction through the PR and Club calibration module.
+    
+    Returns:
+    - float: Final calibrated market value in Euros (€).
+    """
+    breakdown = predict_market_value_detailed(player_inputs, model_path)
+    return breakdown["calibrated_market_value_eur"]
+
+def predict_market_value_detailed(player_inputs, model_path="models/trained_model.joblib"):
+    """
+    Performs full two-stage valuation and returns a transparent breakdown dictionary.
     """
     bundle = load_trained_model(model_path)
-    
-    # Handle backward compatibility if an older model joblib is loaded
-    if isinstance(bundle, dict):
-        global_model = bundle.get("global_model", bundle.get("model"))
-        position_models = bundle.get("position_models", {})
-        feature_cols = bundle["features"]
-    else:
-        # Fallback if raw model was saved directly
-        global_model = bundle
-        position_models = {}
-        from train_model import train_and_evaluate_models
-        _, feature_cols = train_and_evaluate_models(model_output_path=model_path)
-        bundle = load_trained_model(model_path)
+    global_model = bundle.get("global_model", bundle.get("model"))
+    position_models = bundle.get("position_models", {})
+    feature_cols = bundle["features"]
 
     df = pd.DataFrame([player_inputs])
 
@@ -66,6 +67,8 @@ def predict_market_value(player_inputs, model_path="models/trained_model.joblib"
 
     pos_cat = df["position_category"].values[0]
     subpos = df["subposition"].values[0]
+    pr_score = int(df.get("player_reputation", [5]).values[0])
+    club_level = int(df.get("club_competitive_level", [4]).values[0])
 
     for cat in ["Attackers", "Midfielders", "Defenders", "Goalkeepers"]:
         df[f"pos_{cat}"] = 1 if pos_cat == cat else 0
@@ -79,40 +82,50 @@ def predict_market_value(player_inputs, model_path="models/trained_model.joblib"
 
     X_pred = df[feature_cols]
 
-    # Use position-specific model if available, else global model
+    # Stage 1: Machine Learning prediction
     model_to_use = position_models.get(pos_cat, global_model)
     log_pred = model_to_use.predict(X_pred)[0]
-    predicted_eur = np.expm1(log_pred)
-    predicted_eur = max(predicted_eur, 300_000.0)
+    raw_ml_eur = np.expm1(log_pred)
 
-    return predicted_eur
+    # Derive normalized performance score from stats
+    matches_p = max(float(df["matches"].values[0]), 1.0)
+    goals_p = float(df["goals"].values[0])
+    assists_p = float(df["assists"].values[0])
+    tackles_p = float(df.get("tackles", [0]).values[0])
+    saves_p = float(df.get("saves", [0]).values[0])
+    
+    stat_sum = (goals_p * 2.5) + (assists_p * 2.0) + (tackles_p * 0.5) + (saves_p * 0.3)
+    performance_score = float(np.clip(stat_sum / (matches_p * 1.5 + 10.0), 0.0, 1.0))
+
+    # Stage 2: Reputation and Club Calibration
+    calibration_result = calibrate_valuation(
+        ml_prediction_eur=raw_ml_eur,
+        pr_score=pr_score,
+        club_competitive_level=club_level,
+        performance_score=performance_score
+    )
+
+    return calibration_result
 
 def get_position_specific_importances(position_category, subposition, model_path="models/trained_model.joblib"):
-    bundle = load_trained_model(model_path)
-    if isinstance(bundle, dict) and "features" in bundle:
-        features = bundle["features"]
-    else:
-        from train_model import train_and_evaluate_models
-        _, features = train_and_evaluate_models(model_output_path=model_path)
-        
     if position_category == "Attackers":
         if subposition in ["LW", "RW"]:
-            weights = {"crosses": 0.22, "successful_crosses": 0.20, "assists": 0.18, "goals": 0.15, "matches": 0.10, "player_reputation": 0.08, "age": 0.07}
+            weights = {"crosses": 0.22, "successful_crosses": 0.20, "assists": 0.18, "goals": 0.15, "player_reputation": 0.12, "matches": 0.08, "age": 0.05}
         else:
-            weights = {"goals": 0.30, "assists": 0.18, "matches": 0.14, "shots_on_target": 0.12, "xg": 0.10, "player_reputation": 0.08, "age": 0.08}
+            weights = {"goals": 0.28, "player_reputation": 0.18, "assists": 0.15, "matches": 0.12, "shots_on_target": 0.10, "xg": 0.10, "age": 0.07}
     elif position_category == "Midfielders":
         if subposition == "CDM":
-            weights = {"tackles": 0.25, "interceptions": 0.22, "recoveries": 0.18, "matches": 0.12, "progressive_passes": 0.10, "player_reputation": 0.08, "age": 0.05}
+            weights = {"tackles": 0.25, "interceptions": 0.20, "player_reputation": 0.18, "recoveries": 0.15, "matches": 0.10, "progressive_passes": 0.07, "age": 0.05}
         elif subposition in ["LM", "RM"]:
-            weights = {"crosses": 0.22, "successful_crosses": 0.18, "assists": 0.18, "goals": 0.12, "matches": 0.10, "key_passes": 0.10, "player_reputation": 0.10}
+            weights = {"crosses": 0.22, "successful_crosses": 0.18, "assists": 0.16, "player_reputation": 0.14, "goals": 0.10, "matches": 0.10, "key_passes": 0.10}
         else:
-            weights = {"assists": 0.25, "goals": 0.18, "matches": 0.14, "big_chances_created": 0.12, "progressive_passes": 0.10, "player_reputation": 0.11, "age": 0.10}
+            weights = {"assists": 0.22, "player_reputation": 0.20, "goals": 0.15, "matches": 0.12, "big_chances_created": 0.12, "progressive_passes": 0.10, "age": 0.09}
     elif position_category == "Defenders":
         if subposition in ["LB", "RB", "LWB", "RWB"]:
-            weights = {"progressive_passes": 0.22, "passes_into_final_third": 0.18, "tackles": 0.15, "clearances": 0.12, "matches": 0.12, "assists": 0.11, "player_reputation": 0.10}
+            weights = {"progressive_passes": 0.20, "player_reputation": 0.18, "passes_into_final_third": 0.15, "tackles": 0.14, "clearances": 0.11, "matches": 0.11, "assists": 0.11}
         else:
-            weights = {"clearances": 0.25, "tackles": 0.20, "matches": 0.15, "clean_sheets": 0.15, "interceptions": 0.10, "aerial_duels_won": 0.10, "player_reputation": 0.05}
+            weights = {"clearances": 0.22, "tackles": 0.20, "player_reputation": 0.18, "matches": 0.12, "clean_sheets": 0.12, "interceptions": 0.10, "aerial_duels_won": 0.06}
     else:
-        weights = {"saves": 0.30, "clean_sheets": 0.25, "save_percentage": 0.20, "matches": 0.12, "player_reputation": 0.08, "age": 0.05}
+        weights = {"saves": 0.28, "player_reputation": 0.22, "clean_sheets": 0.20, "save_percentage": 0.15, "matches": 0.10, "age": 0.05}
 
     return pd.DataFrame(list(weights.items()), columns=["Feature", "Importance"]).sort_values(by="Importance", ascending=False)
