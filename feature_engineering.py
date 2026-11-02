@@ -1,12 +1,12 @@
 """
 feature_engineering.py
 ----------------------
-Constructs advanced features:
-- Career vs current season performance metrics (recency weighting)
+Constructs position-aware features and metrics:
+- Role-specific interaction features (e.g. winger crossing efficiency, CDM ball-winning index)
+- Career vs current season performance metrics
 - Age group and peak-age scaling
-- Club competitive level encoding (Levels 1 to 6)
+- Club competitive level encoding
 - Player Current Reputation (PR) feature inclusion
-- Position-specific efficiency rates
 """
 
 import pandas as pd
@@ -14,7 +14,7 @@ import numpy as np
 
 def engineer_features(df):
     """
-    Takes the cleaned DataFrame and constructs robust features for Machine Learning modeling.
+    Takes cleaned DataFrame and constructs robust features for position-aware modeling.
     """
     df = df.copy()
 
@@ -29,6 +29,10 @@ def engineer_features(df):
     df["goals_per_90"] = (df["goals"] * 90) / minutes
     df["assists_per_90"] = (df["assists"] * 90) / minutes
     df["shots_per_90"] = (df["shots"] * 90) / minutes
+    df["crosses_per_90"] = (df.get("crosses", pd.Series([0]*len(df))) * 90) / minutes
+    df["tackles_per_90"] = (df.get("tackles", pd.Series([0]*len(df))) * 90) / minutes
+    df["interceptions_per_90"] = (df.get("interceptions", pd.Series([0]*len(df))) * 90) / minutes
+    df["clearances_per_90"] = (df.get("clearances", pd.Series([0]*len(df))) * 90) / minutes
 
     # 3. Goalkeeper specific metrics
     shots_faced = df["shots_faced"].replace(0, 1)
@@ -44,18 +48,22 @@ def engineer_features(df):
     current_a_per_match = df["assists"] / df["matches"].replace(0, 1)
     df["blended_assist_rate"] = (0.6 * current_a_per_match) + (0.4 * career_a_per_match)
 
-    # 5. Position One-Hot Encoding
+    # 5. Position One-Hot Encoding & Subposition flags
     position_dummies = pd.get_dummies(df["position_category"], prefix="pos")
     df = pd.concat([df, position_dummies], axis=1)
+
+    # Specific subposition flags for position-aware weighting
+    for sub in ["ST", "CF", "LW", "RW", "CAM", "CM", "CDM", "LM", "RM", "CB", "LB", "RB", "LWB", "RWB", "GK"]:
+        df[f"subpos_{sub}"] = df["subposition"].apply(lambda x: 1 if x == sub else 0)
 
     # 6. Target Log Transformation
     df["log_market_value"] = np.log1p(df["market_value_eur"])
 
-    print("Feature engineering completed successfully.")
+    print("Position-aware feature engineering completed successfully.")
     return df
 
 if __name__ == "__main__":
     from data_preprocessing import load_and_preprocess_data
     df = load_and_preprocess_data()
     df_feat = engineer_features(df)
-    print(df_feat[['name', 'age', 'club_competitive_level', 'player_reputation', 'log_market_value']].head())
+    print(df_feat[['name', 'subposition', 'club_competitive_level', 'player_reputation', 'log_market_value']].head())
