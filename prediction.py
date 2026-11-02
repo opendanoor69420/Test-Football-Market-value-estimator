@@ -1,7 +1,8 @@
 """
 prediction.py
 -------------
-Loads the trained model bundle and performs inference on user inputs.
+Loads the trained model bundle and performs inference on user inputs,
+handling feature consistency and preventing unrealistic predictions.
 """
 
 import os
@@ -18,16 +19,14 @@ def load_trained_model(model_path="models/trained_model.joblib"):
 def predict_market_value(player_inputs, model_path="models/trained_model.joblib"):
     """
     Takes a dictionary of raw player inputs, computes engineered features,
-    and returns the predicted market value in Euros.
+    and returns the predicted market value in Euros (€).
     """
     bundle = load_trained_model(model_path)
     model = bundle["model"]
     feature_cols = bundle["features"]
 
-    # Convert dictionary to DataFrame
     df = pd.DataFrame([player_inputs])
 
-    # Default missing engineered features if not supplied directly
     df["age_squared"] = df["age"] ** 2
     df["is_prime_age"] = 1 if 23 <= df["age"].values[0] <= 28 else 0
     df["is_veteran"] = 1 if df["age"].values[0] >= 30 else 0
@@ -49,23 +48,19 @@ def predict_market_value(player_inputs, model_path="models/trained_model.joblib"
     df["blended_goal_rate"] = (0.6 * (df["goals"].values[0] / max(df["matches"].values[0], 1))) + (0.4 * (career_g / career_m))
     df["blended_assist_rate"] = (0.6 * (df["assists"].values[0] / max(df["matches"].values[0], 1))) + (0.4 * (career_a / career_m))
 
-    # Position dummies
     pos_cat = df["position_category"].values[0]
     for cat in ["Attackers", "Midfielders", "Defenders", "Goalkeepers"]:
         df[f"pos_{cat}"] = 1 if pos_cat == cat else 0
 
-    # Ensure all required features are present
     for col in feature_cols:
         if col not in df.columns:
             df[col] = 0.0
 
     X_pred = df[feature_cols]
 
-    # Predict log value and inverse transform
     log_pred = model.predict(X_pred)[0]
     predicted_eur = np.expm1(log_pred)
 
-    # Ensure non-negative bounds
-    predicted_eur = max(predicted_eur, 500_000.0)
+    predicted_eur = max(predicted_eur, 300_000.0)
 
     return predicted_eur
