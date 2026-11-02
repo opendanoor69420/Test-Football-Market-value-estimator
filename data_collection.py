@@ -1,10 +1,10 @@
 """
 data_collection.py
 ------------------
-Responsible for gathering or generating a realistic, structured dataset of 660 professional 
-football players across different categories (Attackers, Midfielders, Defenders, Goalkeepers) 
-with accurate statistical attributes, age, competitive club levels, Player Reputation (PR) scores, 
-and actual market values in Euros (€).
+Generates a realistic, structured dataset of 660 professional football players across 
+Attackers, Midfielders, Defenders, and Goalkeepers with extended role-specific statistics 
+(crosses, successful crosses, big chances created, aerial duels won, PSxG, etc.), 
+competitive club levels, Player Reputation (PR) scores, and market values (€).
 """
 
 import os
@@ -13,16 +13,10 @@ import pandas as pd
 
 def generate_sample_player_dataset(output_path="data/raw/players.csv"):
     """
-    Generates a realistic football player dataset of 660 players with comprehensive 
-    statistical profiles, subpositions, ages, competitive club levels, Player Reputation (PR) 1-10 scores, 
-    and market values (€).
+    Generates the 660-player dataset with comprehensive role-specific statistics.
     """
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     np.random.seed(42)
-    
-    # 6 Football-level competitive categories mapping to levels 1 to 6
-    # 1: Champions League level, 2: Europa League level, 3: Conference League level,
-    # 4: Mid-table, 5: Low-mid table (survival), 6: Relegation-level teams
     
     ucl_clubs = ["Real Madrid", "Barcelona", "Manchester City", "Bayern Munich", "Paris Saint-Germain", "Inter Milan", "Arsenal", "Leverkusen"]
     uel_clubs = ["Liverpool", "Roma", "Villarreal", "Real Sociedad", "Atalanta", "Porto", "Benfica", "Tottenham"]
@@ -51,7 +45,7 @@ def generate_sample_player_dataset(output_path="data/raw/players.csv"):
     players = []
     player_id = 1
 
-    # 1. Generate Attackers (200 players)
+    # 1. Attackers (200 players: ST, CF, LW, RW)
     for _ in range(200):
         subpos = np.random.choice(subposition_map["Attackers"])
         age = np.random.randint(17, 37)
@@ -59,7 +53,6 @@ def generate_sample_player_dataset(output_path="data/raw/players.csv"):
         comp_level = club_levels.get(club, 4)
         matches = np.random.randint(15, 38)
         
-        # Current season stats scaled realistically
         goals = int(np.clip(np.random.normal(9 + (5 if comp_level <= 2 else -2) - max(0, age-30)*1.2, 5.5), 0, 38))
         assists = int(np.clip(np.random.normal(5.5, 3.5), 0, 22))
         xg = round(goals * np.random.uniform(0.85, 1.15), 2)
@@ -67,18 +60,18 @@ def generate_sample_player_dataset(output_path="data/raw/players.csv"):
         shots = int(np.clip(goals * np.random.uniform(2.2, 4.0) + np.random.randint(5, 25), 5, 140))
         shots_on_target = int(np.clip(shots * np.random.uniform(0.35, 0.55), 2, 70))
         touches_box = int(np.clip(matches * np.random.uniform(3, 9), 30, 250))
+        big_chances_created = int(np.random.uniform(4, 18))
+        crosses = int(np.random.uniform(20, 120)) if subpos in ["LW", "RW"] else int(np.random.uniform(5, 30))
+        successful_crosses = int(crosses * np.random.uniform(0.2, 0.4))
         minutes = matches * np.random.randint(60, 90)
         
         career_matches = matches + np.random.randint(40, 450)
         career_goals = goals + int(career_matches * np.random.uniform(0.18, 0.45))
         career_assists = assists + int(career_matches * np.random.uniform(0.12, 0.28))
 
-        # Assign Player Reputation (PR) score 1-10 based on performance, age, and club level
         raw_pr = 4.0 + (7 - comp_level) * 0.6 + (goals * 0.25) + (assists * 0.15) - (abs(age - 26) * 0.15)
         pr_score = int(np.clip(round(raw_pr), 1, 10))
 
-        # Robust market valuation model formula reflecting realistic valuations
-        # Higher competitive level number means lower prestige (Level 1 is UCL = highest multiplier)
         prestige_multiplier = max(0.6, (7 - comp_level) * 0.18)
         age_multiplier = 1.35 if 22 <= age <= 27 else (0.65 if age >= 31 else 1.0)
         base_val = (goals * 3.2 + assists * 2.2 + xg * 2.5 + pr_score * 4.5) * prestige_multiplier * age_multiplier
@@ -101,6 +94,9 @@ def generate_sample_player_dataset(output_path="data/raw/players.csv"):
             "shots": shots,
             "shots_on_target": shots_on_target,
             "touches_in_box": touches_box,
+            "big_chances_created": big_chances_created,
+            "crosses": crosses,
+            "successful_crosses": successful_crosses,
             "minutes_played": minutes,
             "career_matches": career_matches,
             "career_goals": career_goals,
@@ -109,13 +105,17 @@ def generate_sample_player_dataset(output_path="data/raw/players.csv"):
             "tackles": np.random.randint(5, 25),
             "interceptions": np.random.randint(3, 18),
             "blocks": np.random.randint(2, 12),
+            "clearances": np.random.randint(2, 15),
+            "aerial_duels_won": np.random.randint(5, 30),
+            "progressive_passes": np.random.randint(10, 40),
+            "passes_into_final_third": np.random.randint(10, 50),
             "saves": 0,
             "shots_faced": 0,
             "market_value_eur": round(market_value * 1_000_000, 2)
         })
         player_id += 1
 
-    # 2. Generate Midfielders (200 players)
+    # 2. Midfielders (200 players: CAM, CM, CDM, LM, RM)
     for _ in range(200):
         subpos = np.random.choice(subposition_map["Midfielders"])
         age = np.random.randint(18, 37)
@@ -127,9 +127,16 @@ def generate_sample_player_dataset(output_path="data/raw/players.csv"):
         assists = int(np.clip(np.random.normal(6.0, 3.8), 0, 20))
         xg = round(goals * 0.9, 2)
         xa = round(assists * 0.95, 2)
+        big_chances_created = int(np.random.uniform(5, 20))
         passes_final_third = int(matches * np.random.uniform(8, 22))
-        tackles = int(matches * np.random.uniform(1.2, 3.8))
-        interceptions = int(matches * np.random.uniform(0.9, 2.8))
+        progressive_passes = int(matches * np.random.uniform(5, 18))
+        tackles = int(matches * np.random.uniform(1.2, 4.5))
+        interceptions = int(matches * np.random.uniform(0.9, 3.2))
+        recoveries = int(matches * np.random.uniform(4.0, 9.0))
+        blocks = int(matches * np.random.uniform(0.5, 2.0))
+        aerial_duels_won = int(matches * np.random.uniform(1.0, 3.5))
+        crosses = int(np.random.uniform(30, 140)) if subpos in ["LM", "RM"] else int(np.random.uniform(5, 30))
+        successful_crosses = int(crosses * np.random.uniform(0.22, 0.42))
         minutes = matches * np.random.randint(65, 90)
         
         career_matches = matches + np.random.randint(40, 480)
@@ -161,6 +168,9 @@ def generate_sample_player_dataset(output_path="data/raw/players.csv"):
             "shots": np.random.randint(8, 35),
             "shots_on_target": np.random.randint(2, 15),
             "touches_in_box": np.random.randint(12, 45),
+            "big_chances_created": big_chances_created,
+            "crosses": crosses,
+            "successful_crosses": successful_crosses,
             "minutes_played": minutes,
             "career_matches": career_matches,
             "career_goals": career_goals,
@@ -168,14 +178,19 @@ def generate_sample_player_dataset(output_path="data/raw/players.csv"):
             "clean_sheets": 0,
             "tackles": tackles,
             "interceptions": interceptions,
-            "blocks": np.random.randint(5, 22),
+            "recoveries": recoveries,
+            "blocks": blocks,
+            "clearances": np.random.randint(5, 20),
+            "aerial_duels_won": aerial_duels_won,
+            "progressive_passes": progressive_passes,
+            "passes_into_final_third": passes_final_third,
             "saves": 0,
             "shots_faced": 0,
             "market_value_eur": round(market_value * 1_000_000, 2)
         })
         player_id += 1
 
-    # 3. Generate Defenders (200 players)
+    # 3. Defenders (200 players: CB, LB, RB, LWB, RWB)
     for _ in range(200):
         subpos = np.random.choice(subposition_map["Defenders"])
         age = np.random.randint(18, 38)
@@ -189,6 +204,12 @@ def generate_sample_player_dataset(output_path="data/raw/players.csv"):
         tackles = int(matches * np.random.uniform(1.6, 4.2))
         interceptions = int(matches * np.random.uniform(1.3, 3.6))
         blocks = int(matches * np.random.uniform(1.0, 3.2))
+        clearances = int(matches * np.random.uniform(3.5, 8.5))
+        aerial_duels_won = int(matches * np.random.uniform(1.8, 5.0))
+        progressive_passes = int(matches * np.random.uniform(3.0, 10.0))
+        passes_into_final_third = int(progressive_passes * 0.7)
+        crosses = int(np.random.uniform(30, 120)) if subpos in ["LB", "RB", "LWB", "RWB"] else int(np.random.uniform(2, 15))
+        successful_crosses = int(crosses * np.random.uniform(0.2, 0.38))
         minutes = matches * np.random.randint(75, 90)
         
         career_matches = matches + np.random.randint(50, 500)
@@ -220,6 +241,9 @@ def generate_sample_player_dataset(output_path="data/raw/players.csv"):
             "shots": np.random.randint(4, 18),
             "shots_on_target": np.random.randint(1, 7),
             "touches_in_box": np.random.randint(4, 22),
+            "big_chances_created": int(assists * 0.8),
+            "crosses": crosses,
+            "successful_crosses": successful_crosses,
             "minutes_played": minutes,
             "career_matches": career_matches,
             "career_goals": career_goals,
@@ -228,13 +252,17 @@ def generate_sample_player_dataset(output_path="data/raw/players.csv"):
             "tackles": tackles,
             "interceptions": interceptions,
             "blocks": blocks,
+            "clearances": clearances,
+            "aerial_duels_won": aerial_duels_won,
+            "progressive_passes": progressive_passes,
+            "passes_into_final_third": passes_into_final_third,
             "saves": 0,
             "shots_faced": 0,
             "market_value_eur": round(market_value * 1_000_000, 2)
         })
         player_id += 1
 
-    # 4. Generate Goalkeepers (60 players)
+    # 4. Goalkeepers (60 players: GK)
     for _ in range(60):
         subpos = "GK"
         age = np.random.randint(20, 39)
@@ -245,6 +273,8 @@ def generate_sample_player_dataset(output_path="data/raw/players.csv"):
         shots_faced = int(matches * np.random.uniform(3.5, 6.2))
         saves = int(shots_faced * np.random.uniform(0.68, 0.83))
         clean_sheets = int(matches * np.random.uniform(0.25, 0.52))
+        goals_conceded = shots_faced - saves
+        psxg_plus_minus = round(np.random.normal(1.2, 3.5), 2) # Post-Shot Expected Goals minus goals conceded
         minutes = matches * 90
         
         career_matches = matches + np.random.randint(50, 550)
@@ -274,6 +304,9 @@ def generate_sample_player_dataset(output_path="data/raw/players.csv"):
             "shots": 0,
             "shots_on_target": 0,
             "touches_in_box": np.random.randint(8, 28),
+            "big_chances_created": 0,
+            "crosses": 0,
+            "successful_crosses": 0,
             "minutes_played": minutes,
             "career_matches": career_matches,
             "career_goals": 0,
@@ -282,8 +315,14 @@ def generate_sample_player_dataset(output_path="data/raw/players.csv"):
             "tackles": 0,
             "interceptions": np.random.randint(1, 8),
             "blocks": np.random.randint(5, 22),
+            "clearances": np.random.randint(10, 35),
+            "aerial_duels_won": np.random.randint(5, 20),
+            "progressive_passes": np.random.randint(5, 25),
+            "passes_into_final_third": np.random.randint(2, 15),
             "saves": saves,
             "shots_faced": shots_faced,
+            "goals_conceded": goals_conceded,
+            "psxg_plus_minus": psxg_plus_minus,
             "market_value_eur": round(market_value * 1_000_000, 2)
         })
         player_id += 1
