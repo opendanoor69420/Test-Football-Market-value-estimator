@@ -2,7 +2,7 @@
 data_preprocessing.py
 ---------------------
 Handles data cleaning, missing value imputation, duplicate removal, 
-type conversions, and data validation.
+type conversions, and data validation for the 660-player dataset.
 """
 
 import pandas as pd
@@ -28,13 +28,11 @@ def load_and_preprocess_data(file_path="data/raw/players.csv"):
     
     for col in numeric_columns:
         if df[col].isnull().sum() > 0:
-            # Impute with median grouped by position category
             df[col] = df[col].fillna(df.groupby("position_category")[col].transform("median"))
-            # Fallback global median if group median is NaN
             df[col] = df[col].fillna(df[col].median())
 
-    # Ensure non-negative constraints for key numerical variables
-    for col in ["matches", "goals", "assists", "age", "market_value_eur", "minutes_played"]:
+    # Ensure non-negative constraints for numerical variables
+    for col in ["matches", "goals", "assists", "age", "market_value_eur", "minutes_played", "player_reputation", "club_competitive_level"]:
         if col in df.columns:
             df[col] = df[col].clip(lower=0)
 
